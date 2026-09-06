@@ -144,3 +144,52 @@ pip install -e .
      - `Ctrl+Shift+V (Console / Terminal default)` (default)
      - `Auto-detect` (detects focused window type dynamically)
      - `Ctrl+V` (standard GUI shortcut)
+
+---
+
+## 💾 Manual Model Download & Storage Location
+
+If you prefer to download models ahead of time (e.g. for air-gapped computers or via command line downloaders):
+
+### Model Storage Directory
+Vocalinux stores its `transcribe.cpp` / Qwen models in:
+```bash
+~/.local/share/vocalinux/models/transcribe_cpp/
+```
+
+### Manual Download Commands
+
+First create the directory if it does not exist:
+```bash
+mkdir -p ~/.local/share/vocalinux/models/transcribe_cpp
+```
+
+Then download your chosen model:
+
+#### 1. Qwen3-ASR 0.6B (Q8_0) — Recommended (~811 MB)
+```bash
+wget -c "https://huggingface.co/handy-computer/Qwen3-ASR-0.6B-gguf/resolve/main/Qwen3-ASR-0.6B-Q8_0.gguf" \
+     -P ~/.local/share/vocalinux/models/transcribe_cpp/
+```
+
+#### 2. Qwen3-ASR 0.6B (Q4_K_M) — Low RAM (~654 MB)
+```bash
+wget -c "https://huggingface.co/handy-computer/Qwen3-ASR-0.6B-gguf/resolve/main/Qwen3-ASR-0.6B-Q4_K_M.gguf" \
+     -P ~/.local/share/vocalinux/models/transcribe_cpp/
+```
+
+#### 3. Qwen3-ASR 1.7B (Q8_0) — Highest Accuracy (~2.1 GB)
+```bash
+wget -c "https://huggingface.co/handy-computer/Qwen3-ASR-1.7B-gguf/resolve/main/Qwen3-ASR-1.7B-Q8_0.gguf" \
+     -P ~/.local/share/vocalinux/models/transcribe_cpp/
+```
+
+#### 4. Qwen3-ASR 1.7B (Q4_K_M) — Quantized 1.7B (~1.26 GB)
+```bash
+wget -c "https://huggingface.co/handy-computer/Qwen3-ASR-1.7B-gguf/resolve/main/Qwen3-ASR-1.7B-Q4_K_M.gguf" \
+     -P ~/.local/share/vocalinux/models/transcribe_cpp/
+```
+
+Once downloaded, open Vocalinux **Settings** → **Speech Model**, and the model dropdown will automatically detect the local file with a checkmark (`✓`).
+
+
