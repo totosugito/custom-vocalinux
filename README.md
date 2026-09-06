@@ -35,11 +35,18 @@
 [![AUR](https://img.shields.io/aur/version/vocalinux)](https://aur.archlinux.org/packages/vocalinux)
 
 
-</div>
+> ### 🚀 Custom Fork Feature: `transcribe.cpp` & Qwen3-ASR Support
+> This fork includes native, offline speech recognition powered by **[`transcribe.cpp`](https://github.com/handy-computer/transcribe.cpp)** and **Qwen3-ASR GGUF** models:
+> - **Zero-cloud / 100% Offline**: Runs locally using the lightweight `transcribe-cli` binary.
+> - **Ultra-fast CPU Performance**: ~6x to 8x realtime inference speed with low memory usage.
+> - **Multilingual**: Automatic language detection supporting 30+ languages (Indonesian, English, Chinese, etc.).
+> - **Built-in Model Downloader**: Seamless model downloading directly from Settings.
+>
+> 📖 **Full Setup & Deployment Guide**: See [docs/TRANSCRIBE_CPP_GUIDE.md](docs/TRANSCRIBE_CPP_GUIDE.md) for installation and cross-machine deployment instructions.
 
 Linux has always punched above its weight, except when it comes to voice typing. Vocalinux fixes that.
 
-It's a free, AGPL-3.0-licensed desktop app that lets you dictate text into *any* application, on X11 or Wayland, using on-device speech recognition after you download a model. Pick from three engines (whisper.cpp, OpenAI Whisper, or VOSK), get automatic GPU acceleration via Vulkan, and control it all with customizable keyboard shortcuts: toggle or push-to-talk.
+It's a free, AGPL-3.0-licensed desktop app that lets you dictate text into *any* application, on X11 or Wayland, using on-device speech recognition after you download a model. Pick from four engines (transcribe.cpp / Qwen3-ASR, whisper.cpp, OpenAI Whisper, or VOSK), get automatic GPU acceleration via Vulkan, and control it all with customizable keyboard shortcuts: toggle or push-to-talk.
 
 Models are downloaded once. After that, speech-to-text stays on your machine. No Voca account is required. Just speak and type.
 
