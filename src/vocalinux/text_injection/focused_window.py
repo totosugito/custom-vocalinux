@@ -311,6 +311,36 @@ def _focused_window_wayland() -> Optional[FocusedWindow]:
     return None
 
 
+def _focused_window_kde_dbus() -> Optional[FocusedWindow]:
+    """Identify active terminal window on KDE Plasma / Qt via session D-Bus (<1ms)."""
+    try:
+        import dbus
+        bus = dbus.SessionBus()
+        term_names = (
+            "konsole", "alacritty", "kitty", "wezterm",
+            "foot", "tilix", "terminator", "ptyxis", "xterm",
+        )
+        for s in bus.list_names():
+            lowered = str(s).lower()
+            for t in term_names:
+                if t in lowered:
+                    for obj_path in (f"/{t}/MainWindow_1", "/MainWindow_1"):
+                        try:
+                            obj = bus.get_object(s, obj_path, introspect=False)
+                            props = dbus.Interface(obj, "org.freedesktop.DBus.Properties")
+                            if props.Get("org.qtproject.Qt.QWidget", "isActiveWindow"):
+                                return FocusedWindow(
+                                    app_id=t,
+                                    wm_class=t,
+                                    process_name=t,
+                                )
+                        except Exception:
+                            pass
+    except Exception as exc:
+        logger.debug("KDE D-Bus window probe failed: %s", exc)
+    return None
+
+
 def get_focused_window() -> Optional[FocusedWindow]:
     """Return focused-window identity, or None when it cannot be determined."""
     try:
@@ -318,6 +348,9 @@ def get_focused_window() -> Optional[FocusedWindow]:
             wayland = _focused_window_wayland()
             if wayland is not None:
                 return wayland
+            kde = _focused_window_kde_dbus()
+            if kde is not None:
+                return kde
         return _focused_window_x11()
     except Exception as exc:
         logger.debug("Focused window probe failed: %s", exc)
