@@ -37,9 +37,36 @@ This document outlines the modifications made to [Vocalinux](https://github.com/
 
 ---
 
-## 🚀 Deployment Guide for Other Computers
+## 📦 Easy Installation via Debian Package (.deb)
 
-To set up and run this version on another Linux machine:
+For Debian / Ubuntu / Linux Mint (amd64), an all-in-one standalone package is available that bundles `transcribe-cli`, Vocalinux, desktop launcher, icons, and dependencies.
+
+### 1. Build or Copy the `.deb` Package
+If building from source:
+```bash
+./packaging/deb/build-deb.sh
+```
+The resulting package will be generated at `dist/vocalinux-qwen_0.16.2_amd64.deb`.
+
+### 2. Install on the Target Computer
+```bash
+sudo apt update
+sudo apt install -y ./vocalinux-qwen_0.16.2_amd64.deb
+```
+`apt install` automatically resolves and installs system requirements (`libportaudio2`, `gir1.2-gtk-3.0`, etc.).
+
+### 3. Permissions (Input Devices / Hotkeys)
+Make sure your user has permission to read input devices for push-to-talk / shortcut handling:
+```bash
+sudo usermod -aG input $USER
+```
+*(Log out and log back in for group membership changes to take effect).*
+
+---
+
+## 🚀 Manual Deployment Guide (From Git Source)
+
+To set up and run this version from source on another Linux machine:
 
 ### Step 1: Install System Dependencies
 Ensure PortAudio and GTK3 dependencies are present on the target system:
@@ -104,3 +131,16 @@ pip install -e .
    - `qwen3-asr-0.6b-q4_k_m` (Lower RAM)
    - `qwen3-asr-1.7b-q8_0` (High accuracy)
 5. If the model is not yet downloaded, Vocalinux will automatically show the download progress dialog and save it to `~/.local/share/vocalinux/models/transcribe_cpp/`.
+
+---
+
+## 🖥️ Console & Terminal Copy-Paste Support
+
+- **Default Paste Shortcut:** The default paste shortcut is set to **`Ctrl+Shift+V`**, ensuring speech dictation can paste directly into terminal emulators, console windows, shell prompts, and SSH sessions without dropping keystrokes or failing.
+- **Customization:** If you wish to change this behavior:
+  1. Open **Settings** → **Output** / **Text Injection**.
+  2. Locate **Paste Shortcut**.
+  3. You can choose:
+     - `Ctrl+Shift+V (Console / Terminal default)` (default)
+     - `Auto-detect` (detects focused window type dynamically)
+     - `Ctrl+V` (standard GUI shortcut)

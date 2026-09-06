@@ -38,12 +38,12 @@ SOUND_EFFECT_TONE_IDS = frozenset(tone_id for tone_id, _label in SOUND_EFFECT_TO
 DEFAULT_SOUND_EFFECT_TONE = "voca"
 
 PASTE_SHORTCUTS: tuple[tuple[str, str], ...] = (
+    ("ctrl+shift+v", "Ctrl+Shift+V (Console / Terminal default)"),
     ("auto", "Auto-detect"),
     ("ctrl+v", "Ctrl+V"),
-    ("ctrl+shift+v", "Ctrl+Shift+V"),
 )
 PASTE_SHORTCUT_IDS = frozenset(shortcut_id for shortcut_id, _label in PASTE_SHORTCUTS)
-DEFAULT_PASTE_SHORTCUT = "auto"
+DEFAULT_PASTE_SHORTCUT = "ctrl+shift+v"
 
 
 def normalize_paste_shortcut(shortcut: Any) -> str:
@@ -124,9 +124,9 @@ DEFAULT_CONFIG = {
         # the next dictation session (push-to-talk / toggle) continues cleanly
         # without glueing onto the previous sentence ("Hello.This").
         "append_trailing_space": True,
-        # Clipboard-paste chord: auto-detect terminals, or force Ctrl+V /
-        # Ctrl+Shift+V when a nested terminal panel is not detected.
-        "paste_shortcut": "auto",
+        # Clipboard-paste chord: default to Ctrl+Shift+V for console/terminal support,
+        # or auto-detect / Ctrl+V as configured in Settings.
+        "paste_shortcut": "ctrl+shift+v",
     },
     "advanced": {
         "power_user_mode": False,
