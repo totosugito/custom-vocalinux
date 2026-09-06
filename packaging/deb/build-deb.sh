@@ -61,6 +61,22 @@ sed -i 's|^Exec=.*|Exec=/usr/bin/vocalinux|' "$DEB_ROOT/usr/share/applications/v
 
 if [ -d "$REPO_ROOT/resources/icons/scalable" ]; then
     cp "$REPO_ROOT/resources/icons/scalable"/*.svg "$DEB_ROOT/usr/share/icons/hicolor/scalable/apps/" 2>/dev/null || true
+    # Also render standard PNG icon resolutions for desktop environments (like KDE Plasma) that require raster icons
+    python3 - << 'PY' "$REPO_ROOT" "$DEB_ROOT" 2>/dev/null || true
+import sys, os
+from gi.repository import GdkPixbuf
+repo_root, deb_root = sys.argv[1], sys.argv[2]
+svg_path = os.path.join(repo_root, "resources/icons/scalable/vocalinux.svg")
+if os.path.isfile(svg_path):
+    for size in [16, 24, 32, 48, 64, 128, 256, 512]:
+        dest_dir = os.path.join(deb_root, f"usr/share/icons/hicolor/{size}x{size}/apps")
+        os.makedirs(dest_dir, exist_ok=True)
+        try:
+            pb = GdkPixbuf.Pixbuf.new_from_file_at_scale(svg_path, size, size, True)
+            pb.savev(os.path.join(dest_dir, "vocalinux.png"), "png", [], [])
+        except Exception:
+            pass
+PY
 fi
 
 mkdir -p "$DEB_ROOT/opt/vocalinux/resources"

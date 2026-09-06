@@ -10,4 +10,5 @@ Terminal=false
 Categories=Utility;Accessibility;AudioVideo;
 Keywords=voice;typing;dictation;speech;recognition;transcription;accessibility;
 StartupNotify=true
+StartupWMClass=vocalinux
 X-GNOME-UsesNotifications=true
