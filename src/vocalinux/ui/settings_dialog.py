@@ -55,6 +55,13 @@ from ..utils.whisper_model_info import (  # noqa: E402
     migrate_legacy_checkpoint_names,
     whisper_model_file,
 )
+from ..utils.transcribecpp_model_info import (
+    delete_transcribe_model,
+    get_transcribe_cli_path,
+    get_transcribecpp_models_catalog,
+    is_transcribe_model_downloaded,
+    list_downloaded_transcribe_models,
+)
 from ..utils.whispercpp_model_info import MODEL_SIZES as WHISPERCPP_MODEL_SIZES
 from ..utils.whispercpp_model_info import (
     WHISPERCPP_MODEL_INFO,
@@ -147,6 +154,7 @@ ENGINE_MODELS = {
     "whisper_cpp": [
         *WHISPERCPP_MODEL_SIZES,
     ],  # whisper.cpp top-level size buckets; variants are selected separately
+    "transcribe_cpp": [],  # dynamically populated from get_transcribecpp_models_catalog()
     "remote_api": [],  # Remote API does not need local models
 }
 
@@ -164,6 +172,7 @@ ENGINE_DISPLAY_NAMES = {
     "vosk": "Vosk",
     "whisper": "Whisper",
     "whisper_cpp": "whisper.cpp",
+    "transcribe_cpp": "transcribe.cpp (Qwen3-ASR)",
     "remote_api": "Remote API",
 }
 
@@ -183,8 +192,14 @@ def _engine_from_display(display_name: str) -> str:
 
 def _model_display_name(model_name: str) -> str:
     """Get a user-friendly model display name."""
+    if not model_name:
+        return ""
     if model_name == "large":
         return "Large v3"
+
+    catalog = get_transcribecpp_models_catalog()
+    if model_name in catalog:
+        return model_name
 
     display_parts = []
     for part in model_name.split("-"):
@@ -609,6 +624,13 @@ def get_available_engines():
         engines["remote_api"] = True
     except ImportError:
         pass
+
+    # Check transcribe.cpp (requires transcribe-cli binary)
+    cli_path = get_transcribe_cli_path()
+    if cli_path and os.path.exists(cli_path):
+        engines["transcribe_cpp"] = True
+    else:
+        engines["transcribe_cpp"] = False
 
     logger.debug(f"Available engines: {engines}")
     return engines
@@ -4758,6 +4780,10 @@ class SettingsDialog(Gtk.Dialog):
                 self._populate_whispercpp_model_options(saved_model_for_engine)
                 return
 
+            if engine == "transcribe_cpp":
+                self._populate_transcribecpp_model_options(saved_model_for_engine)
+                return
+
             downloaded_models = []
             smallest_model = None
             if engine == "whisper":
@@ -4842,6 +4868,7 @@ class SettingsDialog(Gtk.Dialog):
 
         self._set_combo_active_id_or_first(self.model_combo, saved_size)
         active_size = self.model_combo.get_active_id() or saved_size
+        self.model_variant_row.set_visible(True)
         self._populate_whispercpp_variant_options(active_size, saved_model)
 
     def _populate_whispercpp_variant_options(
@@ -4877,9 +4904,34 @@ class SettingsDialog(Gtk.Dialog):
         self._set_combo_active_id_or_first(self.model_variant_combo, model_to_set)
         self._update_model_picker_tooltips()
 
+    def _populate_transcribecpp_model_options(self, saved_model_for_engine: str):
+        """Populate model options for transcribe.cpp engine (Qwen3-ASR etc.)."""
+        catalog = get_transcribecpp_models_catalog()
+        model_names = list(catalog.keys())
+        if not model_names:
+            return
+
+        saved_model = saved_model_for_engine if saved_model_for_engine in catalog else model_names[0]
+
+        for model_name in model_names:
+            info = catalog[model_name]
+            is_downloaded = is_transcribe_model_downloaded(model_name)
+            status = "✓" if is_downloaded else "↓"
+            desc = info.get("desc", model_name)
+            size_mb = info.get("size_mb", 0)
+            display_text = f"{model_name} ({_format_size(size_mb)}) {status}"
+            self.model_combo.append(model_name, display_text)
+
+        self._set_combo_active_id_or_first(self.model_combo, saved_model)
+        self.model_variant_combo.set_visible(False)
+        self.model_variant_row.set_visible(False)
+        self._update_model_picker_tooltips()
+
     def _active_removable_model_id(self) -> Optional[str]:
         """Return the on-disk id of the model currently selected in Settings."""
         engine = self._get_selected_engine()
+        if engine == "transcribe_cpp":
+            return self.model_combo.get_active_id()
         if engine == "whisper_cpp":
             return self._get_selected_whispercpp_model()
         if engine == "whisper":
@@ -4904,6 +4956,14 @@ class SettingsDialog(Gtk.Dialog):
         engine = self._get_selected_engine()
         active_id = self._active_removable_model_id()
         items: list[tuple[str, str, str, bool]] = []
+
+        if engine == "transcribe_cpp":
+            catalog = get_transcribecpp_models_catalog()
+            for name in list_downloaded_transcribe_models():
+                info = catalog.get(name, {})
+                size_label = _format_size(info.get("size_mb", 0))
+                items.append((name, name, size_label, name == active_id))
+            return items
 
         if engine == "whisper_cpp":
             for name in list_downloaded_whispercpp_models():
@@ -5023,7 +5083,9 @@ class SettingsDialog(Gtk.Dialog):
     def _delete_model_from_disk(self, model_id: str) -> None:
         """Delete a downloaded model for the selected engine."""
         engine = self._get_selected_engine()
-        if engine == "whisper_cpp":
+        if engine == "transcribe_cpp":
+            delete_transcribe_model(model_id)
+        elif engine == "whisper_cpp":
             delete_whispercpp_model(model_id)
         elif engine == "whisper":
             _delete_whisper_model(model_id)
@@ -5188,10 +5250,10 @@ class SettingsDialog(Gtk.Dialog):
                     continue
                 is_downloaded = _is_vosk_model_downloaded("small", lang_code)
                 display_text += " ✓" if is_downloaded else " ↓"
-            elif engine in ["whisper", "whisper_cpp", "remote_api"]:
+            elif engine in ["whisper", "whisper_cpp", "remote_api", "transcribe_cpp"]:
                 if english_only_whispercpp and lang_info.get("whisper") != "en":
                     continue
-                # Both Whisper and whisper.cpp support auto-detect
+                # Whisper, whisper.cpp, and transcribe_cpp support auto-detect
                 if lang_code == "auto":
                     display_text += " ⚠"
             else:
@@ -5336,6 +5398,12 @@ class SettingsDialog(Gtk.Dialog):
 
         if engine == "whisper_cpp":
             model_name = self._get_selected_whispercpp_model()
+        elif engine == "transcribe_cpp":
+            model_id = self.model_combo.get_active_id()
+            if not model_id:
+                self.model_info_card.hide()
+                return
+            model_name = model_id
         else:
             model_id = self.model_combo.get_active_id()
             if not model_id:
@@ -5362,6 +5430,16 @@ class SettingsDialog(Gtk.Dialog):
             extra_info = (
                 f"Parameters: {info['params']} • Backend: {get_backend_display_name(backend)}"
             )
+        elif engine == "transcribe_cpp":
+            catalog = get_transcribecpp_models_catalog()
+            if model_name not in catalog:
+                self.model_info_card.hide()
+                return
+            info = catalog[model_name]
+            is_downloaded = is_transcribe_model_downloaded(model_name)
+            recommended = None
+            reason = ""
+            extra_info = f"Parameters: {info.get('params', 'N/A')} • Local transcribe-cli"
         elif engine == "vosk":
             if model_name not in VOSK_MODEL_INFO:
                 self.model_info_card.hide()
@@ -5427,6 +5505,10 @@ class SettingsDialog(Gtk.Dialog):
             elif engine == "whisper_cpp" and not is_whispercpp_model_downloaded(model_name):
                 needs_download = True
                 model_info = WHISPERCPP_MODEL_INFO.get(model_name, {"size_mb": 39})
+            elif engine == "transcribe_cpp" and not is_transcribe_model_downloaded(model_name):
+                needs_download = True
+                catalog = get_transcribecpp_models_catalog()
+                model_info = catalog.get(model_name, {"size_mb": 811})
             elif engine == "vosk" and not _is_vosk_model_downloaded(model_name, self.language):
                 needs_download = True
                 model_info = VOSK_MODEL_INFO.get(model_name, {"size_mb": 50})
@@ -5596,6 +5678,8 @@ class SettingsDialog(Gtk.Dialog):
         engine = _engine_from_display(engine_text) if engine_text else "vosk"
         if engine == "whisper_cpp":
             model_size = self._get_selected_whispercpp_model()
+        elif engine == "transcribe_cpp":
+            model_size = model_id or "qwen3-asr-0.6b-q8_0"
         else:
             model_size = model_id.lower() if model_id else "small"
         language = language_id if language_id else self._default_language_for_engine(engine)
@@ -5822,6 +5906,10 @@ For now, the engine has been reverted to VOSK."""
         elif engine == "whisper_cpp" and not is_whispercpp_model_downloaded(model_name):
             needs_download = True
             model_info = WHISPERCPP_MODEL_INFO.get(model_name, {"size_mb": 39})
+        elif engine == "transcribe_cpp" and not is_transcribe_model_downloaded(model_name):
+            needs_download = True
+            catalog = get_transcribecpp_models_catalog()
+            model_info = catalog.get(model_name, {"size_mb": 811})
         elif engine == "vosk" and not _is_vosk_model_downloaded(model_name, self.language):
             needs_download = True
             model_info = VOSK_MODEL_INFO.get(model_name, {"size_mb": 50})

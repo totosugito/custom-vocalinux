@@ -69,6 +69,7 @@ DEFAULT_CONFIG = {
         "vosk_model_size": "small",  # Default model for VOSK engine
         "whisper_model_size": "tiny",  # Default model for Whisper engine
         "whisper_cpp_model_size": "tiny",  # Default model for whisper.cpp engine
+        "transcribecpp_model_size": "qwen3-asr-0.6b-q8_0",  # Default model for transcribe.cpp engine (Qwen3-ASR)
         "vad_sensitivity": 3,  # Voice Activity Detection sensitivity (1-5)
         "silence_timeout": 2.0,  # Seconds of silence before stopping
         "stop_sound_guard_ms": 200,  # Small tail trim to avoid the stop sound without clipping speech
@@ -408,7 +409,7 @@ class ConfigManager:
         """Get the saved model size for a specific engine.
 
         Args:
-            engine: The engine name ("vosk", "whisper", or "whisper_cpp")
+            engine: The engine name ("vosk", "whisper", "whisper_cpp", or "transcribe_cpp")
 
         Returns:
             The model size for the engine, or the default if not found
@@ -419,6 +420,8 @@ class ConfigManager:
         engine_key = f"{engine.lower()}_model_size"
         if engine_key in sr_config:
             return sr_config[engine_key]
+        if engine.lower() == "transcribe_cpp":
+            return sr_config.get("transcribecpp_model_size", "qwen3-asr-0.6b-q8_0")
 
         # Fall back to generic model_size for backward compatibility
         return sr_config.get("model_size", "small" if engine == "vosk" else "tiny")

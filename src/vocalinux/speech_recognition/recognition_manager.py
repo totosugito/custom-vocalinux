@@ -35,6 +35,12 @@ from ..utils.whisper_model_info import (
     whisper_model_file,
     whisper_model_url,
 )
+from ..utils.transcribecpp_model_info import (
+    get_transcribe_cli_path,
+    get_transcribe_model_path,
+    get_transcribecpp_models_catalog,
+    is_transcribe_model_downloaded,
+)
 from ..utils.whispercpp_model_info import WHISPERCPP_MODEL_INFO, get_model_path, is_model_downloaded
 from ..version import __version__
 from .command_processor import CommandProcessor
@@ -1086,6 +1092,8 @@ class SpeechRecognitionManager:
             self._init_whisper()
         elif engine == "whisper_cpp":
             self._init_whispercpp()
+        elif engine == "transcribe_cpp":
+            self._init_transcribecpp()
         elif engine == "remote_api":
             self._init_remote_api()
         else:
@@ -1761,6 +1769,138 @@ class SpeechRecognitionManager:
                 else "empty audio buffer"
             )
             logger.error(f"Error in whisper.cpp transcription: {e} ({audio_info})", exc_info=True)
+            return ""
+
+    def _init_transcribecpp(self):
+        """Initialize transcribe.cpp speech recognition engine (Qwen3-ASR, etc.)."""
+        self.transcribe_cli_path = get_transcribe_cli_path()
+        if not self.transcribe_cli_path or not os.path.exists(self.transcribe_cli_path):
+            logger.error("transcribe-cli executable not found. Please build transcribe.cpp or place it in PATH.")
+            self._model_initialized = False
+            self.state = RecognitionState.ERROR
+            return
+
+        catalog = get_transcribecpp_models_catalog()
+        valid_models = list(catalog.keys())
+        if self.model_size not in valid_models and valid_models:
+            logger.warning(
+                f"Model size '{self.model_size}' not in transcribe.cpp catalog. "
+                f"Valid options: {valid_models}. Using '{valid_models[0]}' instead."
+            )
+            self.model_size = valid_models[0]
+
+        model_path = get_transcribe_model_path(self.model_size)
+        if not os.path.exists(model_path):
+            logger.warning(f"transcribe.cpp model not downloaded at {model_path}")
+            self._model_initialized = False
+            if self._defer_download:
+                logger.info("Deferring model download until requested")
+                self.state = RecognitionState.IDLE
+                return
+            try:
+                self._download_transcribecpp_model()
+            except Exception as e:
+                logger.error(f"Failed to download transcribe.cpp model: {e}")
+                self.state = RecognitionState.ERROR
+                raise
+
+        self._model_initialized = True
+        self.state = RecognitionState.IDLE
+        logger.info(f"transcribe.cpp engine initialized with model '{self.model_size}' at {model_path}")
+
+    def _download_transcribecpp_model(self):
+        """Download transcribe.cpp GGUF model with progress tracking."""
+        import requests
+
+        self._download_cancelled = False
+        catalog = get_transcribecpp_models_catalog()
+        model_info = catalog.get(self.model_size)
+        if not model_info or not model_info.get("url"):
+            raise ValueError(f"Unknown or missing URL for transcribe.cpp model: {self.model_size}")
+
+        url = model_info["url"]
+        model_path = get_transcribe_model_path(self.model_size)
+        temp_file = model_path + ".tmp"
+        os.makedirs(os.path.dirname(model_path), exist_ok=True)
+
+        logger.info(f"Downloading transcribe.cpp model {self.model_size} from {url}")
+        try:
+            self._stream_model_download(url, temp_file)
+            os.rename(temp_file, model_path)
+            logger.info("transcribe.cpp model downloaded successfully")
+            if self._download_progress_callback:
+                self._download_progress_callback(1.0, 0, "Complete!")
+        except Exception as e:
+            logger.error(f"Failed to download transcribe.cpp model from {url}: {e}")
+            if os.path.exists(temp_file):
+                os.remove(temp_file)
+            raise
+
+    def _transcribe_with_transcribecpp(self, audio_buffer: list[bytes]) -> str:
+        """Transcribe audio buffer using transcribe-cli."""
+        import subprocess
+        import tempfile
+        import wave
+
+        if not audio_buffer:
+            return ""
+
+        cli_path = getattr(self, "transcribe_cli_path", None) or get_transcribe_cli_path()
+        if not cli_path or not os.path.exists(cli_path):
+            logger.error("transcribe-cli executable is missing")
+            return ""
+
+        model_path = get_transcribe_model_path(self.model_size)
+        if not os.path.exists(model_path):
+            logger.error(f"transcribe.cpp model file missing at {model_path}")
+            return ""
+
+        try:
+            with tempfile.NamedTemporaryFile(suffix=".wav", delete=True) as tmp_wav, \
+                 tempfile.NamedTemporaryFile(suffix=".txt", delete=True) as tmp_out:
+                with wave.open(tmp_wav.name, "wb") as wf:
+                    wf.setnchannels(1)
+                    wf.setsampwidth(2)  # 16-bit PCM
+                    wf.setframerate(16000)
+                    wf.writeframes(b"".join(audio_buffer))
+
+                cmd = [cli_path, "-q", "-m", model_path, "-o", tmp_out.name]
+
+                # Optional language hint if supported
+                if self.language and self.language != "auto":
+                    lang_code = resolve_whisper_language(self.language)
+                    if lang_code:
+                        cmd.extend(["-l", lang_code])
+
+                cmd.append(tmp_wav.name)
+
+                start_t = time.time()
+                res = subprocess.run(cmd, capture_output=True, text=True)
+                dur = time.time() - start_t
+
+                if res.returncode != 0:
+                    logger.error(f"transcribe-cli exited with code {res.returncode}: {res.stderr}")
+                    return ""
+
+                # Prefer reading clean text written to -o file
+                text = ""
+                if os.path.exists(tmp_out.name):
+                    with open(tmp_out.name, "r", encoding="utf-8") as f:
+                        text = f.read().strip()
+
+                # Fallback: extract 'text: <content>' from stdout if file was empty
+                if not text and res.stdout:
+                    import re
+                    match = re.search(r"^text:\s*(.*)$", res.stdout, re.MULTILINE)
+                    if match:
+                        text = match.group(1).strip()
+                    else:
+                        text = res.stdout.strip()
+
+                logger.debug(f"transcribe-cli finished in {dur:.2f}s: '{text}'")
+                return text
+        except Exception as e:
+            logger.error(f"Error executing transcribe-cli: {e}", exc_info=True)
             return ""
 
     def _init_remote_api(self):
@@ -2501,8 +2641,8 @@ class SpeechRecognitionManager:
     @property
     def model_ready(self) -> bool:
         """Check if the model is initialized and ready for recognition."""
-        # Remote API does not need local models
-        if self.engine == "remote_api":
+        # Remote API and transcribe_cpp (CLI-based) do not hold a Python Ctypes self.model
+        if self.engine in ("remote_api", "transcribe_cpp"):
             return self._model_initialized
         return self._model_initialized and self.model is not None
 
@@ -3017,6 +3157,9 @@ class SpeechRecognitionManager:
         elif self.engine == "whisper_cpp":
             text = self._transcribe_with_whispercpp(audio_buffer)
 
+        elif self.engine == "transcribe_cpp":
+            text = self._transcribe_with_transcribecpp(audio_buffer)
+
         elif self.engine == "remote_api":
             # Snapshot the HTTP session under lock to prevent race with
             # reconfigure() / reinitialize_after_resume() which close/recreate
@@ -3289,6 +3432,8 @@ class SpeechRecognitionManager:
                         self._init_whisper()
                     elif self.engine == "whisper_cpp":
                         self._init_whispercpp()
+                    elif self.engine == "transcribe_cpp":
+                        self._init_transcribecpp()
                     elif self.engine == "remote_api":
                         self._init_remote_api()
                     else:
